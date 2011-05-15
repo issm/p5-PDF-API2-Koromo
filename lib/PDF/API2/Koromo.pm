@@ -11,7 +11,7 @@ use Encode;
 use Carp;
 use Try::Tiny;
 
-our $VERSION = '0.01';
+our $VERSION = '0.00_01';
 
 #
 #

@@ -1,4 +1,4 @@
 Revision history for Perl extension PDF::API2::Koromo
 
-0.01    Mon May 16 00:54:23 2011
-        - original version
+0.00_01 2011-05-16 02:15
+        - original version (ported from Hoya::X::PDF)
