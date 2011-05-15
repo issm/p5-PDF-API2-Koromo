@@ -1,4 +1,9 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_02 2011-05-16 08:45
+        - requires Class::Accessor::Lite, insted of Class::Accessor::Faster
+        - requires Data::Validator
+        - refactored a little
+
 0.00_01 2011-05-16 02:15
         - original version (ported from Hoya::X::PDF)
