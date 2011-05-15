@@ -1,0 +1,27 @@
+This is Perl module PDF::API2::Koromo.
+
+INSTALLATION
+
+PDF::API2::Koromo installation is straightforward. If your CPAN shell is set up,
+you should just be able to do
+
+    % cpan PDF::API2::Koromo
+
+Download it, unpack it, then build it as per the usual:
+
+    % perl Makefile.PL
+    % make && make test
+
+Then install it:
+
+    % make install
+
+DOCUMENTATION
+
+PDF::API2::Koromo documentation is available as in POD. So you can do:
+
+    % perldoc PDF::API2::Koromo
+
+to read the documentation online with your favorite pager.
+
+issm
