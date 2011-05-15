@@ -1,8 +1,21 @@
+#--------------------------------------------------------------------------------
+#
+#  座標系：水平右方向を x，垂直下方向を y とする．また，左上を (x, y) = (0, 0) とする
+
+#  使用可能な単位
+#    px:     ピクセル
+#    mm:     ミリメートル
+#    cm:     センチメートル
+#    %w, %W: ページ幅に対する割合
+#    %h, %H: ページ高さに対する割合
+#
+#--------------------------------------------------------------------------------
 package PDF::API2::Koromo;
+use 5.008008;
 use strict;
 use warnings;
 use utf8;
-use base qw/Class::Accessor::Faster/;
+use Data::Validator;
 use PDF::API2;
 use PDF::API2::Lite;
 use Image::Magick;
@@ -10,24 +23,28 @@ use Image::Size;
 use Encode;
 use Carp;
 use Try::Tiny;
+use Class::Accessor::Lite (
+    new => 0,
+    rw  => [qw/
+        _PDF _MEASURE _DPI _WIDTH _HEIGHT _FONT _FONT_SIZE _LINE_HEIGHT _ROTATE _COLOR_STROKE _COLOR_FILL _LINE_WIDTH
+        measure dpi width height ttfont fontsize line_height strokecolor fillcolor linewidth
+    /],
+);
+use constant +{
+    DEFAULT_MEASURE      => 'px',      # 単位
+    DEFAULT_DPI          => 300,       # 解像度
+    DEFAULT_PAGE_WIDTH   => '210mm',   # ページ幅 [px]    デフォルトは A4 （縦）の幅
+    DEFAULT_PAGE_HEIGHT  => '297mm',   # ページ高さ [px]  デフォルトは A4 （縦）の高さ
+    DEFAULT_FONT_SIZE    => 14,        # フォントサイズ
+    DEFAULT_LINE_HEIGHT  => '100%',    # 行高さ
+    DEFAULT_ROTATE       => 0,         # 配置オブジェクトの回転角度
+    DEFAULT_COLOR_STROKE => '#000000', # ストロークの色
+    DEFAULT_COLOR_FILL   => '#ffffff', # 塗りつぶしの色
+    DEFAULT_LINE_WIDTH   => 1,         # 線の幅
+};
 
 our $VERSION = '0.00_01';
 
-#
-#
-#
-#  座標系：水平右方向を x，垂直下方向を y とする．また，左上を (x, y) = (0, 0) とする
-#
-
-#
-#  使用可能な単位
-#
-#    px:     ピクセル
-#    mm:     ミリメートル
-#    cm:     センチメートル
-#    %w, %W: ページ幅に対する割合
-#    %h, %H: ページ高さに対する割合
-#
 
 my $RE = {
     NL               => qr/(?:\x0d?\x0a|\x0d)/x,     # 改行文字の正規表現: CR+LF, LF, CR
@@ -44,26 +61,6 @@ my $MAP_YOKO2TATE = {
 };
 
 
-#--------------------------------------------------------------------------------
-#
-#  初期値
-#
-#--------------------------------------------------------------------------------
-my $MEASURE      = 'px';       # 単位
-my $DPI          = 300;        # 解像度
-my $PAGE_WIDTH   = '210mm';    # ページ幅 [px]    デフォルトは A4 （縦）の幅
-my $PAGE_HEIGHT  = '297mm';    # ページ高さ [px]  デフォルトは A4 （縦）の高さ
-
-my $PDF          = undef;      #  PDFオブジェクト
-my $FONT         = undef;      #  フォントオブジェクト
-my $FONT_SIZE    = 14;         #  フォントサイズ
-my $LINE_HEIGHT  = '100%';     #  行高さ
-
-my $ROTATE       = 0;          # 配置オブジェクトの回転角度
-my $COLOR_STROKE = '#000000';  # ストロークの色
-my $COLOR_FILL   = '#ffffff';  # 塗りつぶしの色
-
-my $LINE_WIDTH   = 1;          # 線の幅
 
 
 #
@@ -81,66 +78,59 @@ my $LINE_WIDTH   = 1;          # 線の幅
 #  @param   ?linewidth    scalar  線の幅
 #
 sub new {
-    my $class = shift;
-    my $param = shift || {};
-    my $self = bless $class->SUPER::new($param), $class;
+    my ($class, %params) = @_;
+    my $self = bless {}, $class;
 
-    $class->mk_accessors(
-        qw/
-              _PDF _MEASURE _DPI _WIDTH _HEIGHT _FONT _FONT_SIZE _LINE_HEIGHT _ROTATE _COLOR_STROKE _COLOR_FILL _LINE_WIDTH
-              measure dpi width height ttfont fontsize line_height strokecolor fillcolor linewidth
-          /
+    my $v = Data::Validator->new(
+        measure     => { isa => 'Str', default => DEFAULT_MEASURE },
+        dpi         => { isa => 'Int', default => DEFAULT_DPI },
+        width       => { isa => 'Str', default => DEFAULT_PAGE_WIDTH },
+        height      => { isa => 'Str', default => DEFAULT_PAGE_HEIGHT },
+        ttfont      => { isa => 'Str', optional => 1 },
+        fontsize    => { isa => 'Str', default => DEFAULT_FONT_SIZE },
+        line_height => { isa => 'Str', default => DEFAULT_LINE_HEIGHT },
+        strokecolor => { isa => 'Str', default => DEFAULT_COLOR_STROKE },
+        fillcolor   => { isa => 'Str', default => DEFAULT_COLOR_FILL },
+        linewidth   => { isa => 'Str', default => DEFAULT_LINE_WIDTH },
     );
+    %params = %{ $v->validate({%params}) };
 
-    return $self->_init;
+    $self->measure( $params{measure} );
+    $self->dpi( $params{dpi} );
+    $self->width( $params{width} );
+    $self->height( $params{height} );
+    $self->ttfont( $params{ttfont} );
+    $self->fontsize( $params{fontsize} );
+    $self->line_height( $params{line_height} );
+    $self->strokecolor( $params{strokecolor} );
+    $self->fillcolor( $params{fillcolor} );
+    $self->linewidth( $params{linewidth} );
+
+    return $self->_init(%params);
 }
 
 #
 #  初期化
 #
 sub _init {
-    my $self = shift;
-    my $param = +{@_};
-    #my ($self, $param ) = self_param(@_);
+    my ($self, %params) = @_;
 
-    $self->_DPI(
-        defined $self->dpi  ?  $self->dpi  :  $DPI
-    );
-    $self->_MEASURE(
-        defined $self->measure  ?  $self->measure  :  $MEASURE
-    );
-    $self->_WIDTH(
-        $self->to_px(defined $self->width  ?  $self->width  :  $PAGE_WIDTH)
-    );
-    $self->_HEIGHT(
-        $self->to_px(defined $self->height  ?  $self->height  :  $PAGE_HEIGHT)
-    );
+    $self->_DPI( $self->dpi );
+    $self->_MEASURE( $self->measure );
+    $self->_WIDTH( $self->to_px( $self->width ) );
+    $self->_HEIGHT( $self->to_px( $self->height ) );
 
-    $self->_PDF(
-        $PDF = PDF::API2::Lite->new
-    );
+    my $PDF;
+    $self->_PDF( $PDF = PDF::API2::Lite->new );
     $self->page;
 
-    $self->_FONT($PDF->ttfont( $self->ttfont ))  if defined $self->ttfont;
+    $self->_FONT( $PDF->ttfont( $self->ttfont ) )  if defined $self->ttfont;
 
-    $self->_FONT_SIZE(
-        $self->to_px(defined $self->fontsize  ?  $self->fontsize  :  $FONT_SIZE)
-    );
-    $self->_LINE_HEIGHT(
-        defined $self->line_height  ?  $self->line_height  :  $LINE_HEIGHT
-    );
-
-    $self->_COLOR_STROKE(
-        defined $self->strokecolor  ?  $self->strokecolor  :  $COLOR_STROKE
-    );
-    $self->_COLOR_FILL(
-        defined $self->fillcolor  ?  $self->fillcolor  :  $COLOR_FILL
-    );
-
-    $self->_LINE_WIDTH(
-        defined $self->linewidth  ?  $self->linewidth  :  $LINE_WIDTH
-    );
-
+    $self->_FONT_SIZE( $self->to_px( $self->fontsize ) );
+    $self->_LINE_HEIGHT( $self->line_height );
+    $self->_COLOR_STROKE( $self->strokecolor );
+    $self->_COLOR_FILL( $self->fillcolor );
+    $self->_LINE_WIDTH( $self->linewidth );
 
     $PDF->strokecolor($self->_COLOR_STROKE);
     $PDF->fillcolor($self->_COLOR_FILL);
@@ -165,8 +155,6 @@ sub to_px {
     return 0  unless defined $val;
 
     my $ret = 0;
-
-    #$val *= $self->{RATE}  unless lc $measure =~ m{^\%(w|h)$};
 
     # mm
     if    (lc $measure eq 'mm')    { $ret = $self->mm($val); }
@@ -238,14 +226,13 @@ sub convert_coordinate {
 sub load {
     my $self = shift;
     my $param = +{@_};
-    #my ($self, $param) = self_param( @_ );
     my $file = $param->{file};
     try {
-        $PDF->{api} = PDF::API2->open($file);
+        $self->_PDF->{api} = PDF::API2->open($file);
     }
     catch {
         carp shift;
-        $PDF->{api} = undef;
+        $self->_PDF->{api} = undef;
     }
 }
 
@@ -256,7 +243,7 @@ sub load {
 #
 sub page {
     my $self = shift;
-    $PDF->page($self->_WIDTH, $self->_HEIGHT);
+    $self->_PDF->page($self->_WIDTH, $self->_HEIGHT);
 }
 
 
@@ -266,8 +253,7 @@ sub page {
 sub openpage {
     my $self = shift;
     my $param = +{@_};
-  #my ($self, $param) = self_param @_;
-  $PDF->{api}->openpage($param->{page} || -1);
+    $self->_PDF->{api}->openpage($param->{page} || -1);
 }
 
 #
@@ -276,7 +262,6 @@ sub openpage {
 sub rotatepage {
     my $self = shift;
     my $param = +{@_};
-    #my ($self, $param) = self_param @_;
     my $page   = $param->{page} || -1;
     my $degree = $param->{degree} || $param->{deg} || 0;
     $self->openpage(page => $page)->rotate($degree);
@@ -311,88 +296,84 @@ sub rotatepage {
 sub save {
     my $self = shift;
     my $param = +{@_};
-  #my ( $self, $param )  = self_param( @_ );
-  my $file       = $param->{file}        ||  '';
-  my $image      = $param->{image};
-  my $scale      = $param->{scale}       ||  1;
-  my $image_only = $param->{image_only}  ||  0;
+    my $file       = $param->{file}        ||  '';
+    my $image      = $param->{image};
+    my $scale      = $param->{scale}       ||  1;
+    my $image_only = $param->{image_only}  ||  0;
 
-  return 0  unless $file;
-  return 0  unless $PDF->{api}->{pdf};  # 一度saveを呼び出すと，この値（？）は undef される． ← PDF::API2::out_file あたりを参照
+    return 0  unless $file;
+    return 0  unless $self->_PDF->{api}->{pdf};  # 一度saveを呼び出すと，この値（？）は undef される． ← PDF::API2::out_file あたりを参照
 
-  #
-  #  PDF を保存
-  #
-  $PDF->saveas( $file )  ||  die $!;
+    #
+    #  PDF を保存
+    #
+    $self->_PDF->saveas( $file )  ||  die $!;
 
 
-  #
-  #  画像として保存（新タイプ）
-  #
-  if( defined $image  &&  ref $image eq 'HASH' ) {
-    if( $image->{file} =~ m{\. ( jpe?g | png | gif ) $}ix ) {
-      my $img = Image::Magick->new;
-      $img->Read( filename => $file );
+    #
+    #  画像として保存（新タイプ）
+    #
+    if( defined $image  &&  ref $image eq 'HASH' ) {
+        if( $image->{file} =~ m{\. ( jpe?g | png | gif ) $}ix ) {
+            my $img = Image::Magick->new;
+            $img->Read( filename => $file );
 
-      # 幅，高さ指定時
-      if( $image->{width}  ||  $image->{height} ) {
-        $img->Resize(
-          width  => $self->to_px( $image->{width}  ||  $image->{height} ),
-          height => $self->to_px( $image->{height}  ||  $image->{width} ),
-        );
-      }
-      # 格納正方形指定時
-      elsif( $image->{square} ) {
-        my $geometry = sprintf '%dx%d', $self->to_px( $image->{square} ), $self->to_px( $image->{square} );
-        $img->Resize( geometry => $geometry );
-      }
-      # 倍率指定時
-      elsif( defined $image->{scale} ) {
-        $img->Resize(
-          width  => $self->_WIDTH  * $image->{scale},
-          height => $self->_HEIGHT * $image->{scale},
-        );
-      }
+            # 幅，高さ指定時
+            if( $image->{width}  ||  $image->{height} ) {
+                $img->Resize(
+                    width  => $self->to_px( $image->{width}  ||  $image->{height} ),
+                    height => $self->to_px( $image->{height}  ||  $image->{width} ),
+                );
+            }
+            # 格納正方形指定時
+            elsif( $image->{square} ) {
+                my $geometry = sprintf '%dx%d', $self->to_px( $image->{square} ), $self->to_px( $image->{square} );
+                $img->Resize( geometry => $geometry );
+            }
+            # 倍率指定時
+            elsif( defined $image->{scale} ) {
+                $img->Resize(
+                    width  => $self->_WIDTH  * $image->{scale},
+                    height => $self->_HEIGHT * $image->{scale},
+                );
+            }
 
-      # 属性の設定
-      # $img->Set(
-      #   density => sprintf( '%dx%d', $self->_DPI, $self->_DPI ),
-      #   units   => 'PixelsPerInch',
-      # );
-      # 出力
-      $img->Write( filename => $image->{file} );
-      undef $img;
+            # 属性の設定
+            # $img->Set(
+            #     density => sprintf( '%dx%d', $self->_DPI, $self->_DPI ),
+            #     units   => 'PixelsPerInch',
+            # );
+            # 出力
+            $img->Write( filename => $image->{file} );
+            undef $img;
+        }
+
+        unlink $file  if $image->{only};  # 「画像のみ保存」指定の場合，保存したPDFを削除する
+    }
+    #
+    #  画像として保存（旧タイプ，deprecated）
+    #
+    elsif( defined $image  &&  ref $image eq '' ) {
+        if( $image =~ m{\. ( jpe?g | png | gif ) $}ix ) {
+            my $img = Image::Magick->new;
+            $img->Read( $file );
+            $img->Resize( width => $self->{PAGE_WIDTH} * $scale, height => $self->{PAGE_HEIGHT} * $scale );
+            # 属性の設定
+            $img->Set(
+                density => sprintf( '%dx%d', $self->{DPI}, $self->{DPI} ),
+                #density => sprintf( '%dx%d', $self->{PAGE_WIDTH}, $self->{PAGE_HEIGHT} ),
+                units   => 'PixelsPerInch',
+            );
+            # 出力
+            $img->Write( filename => $image );
+            undef $img;
+        }
+
+        unlink $file  if $image_only;  # 「画像のみ保存」指定の場合，保存したPDFを削除する
     }
 
-    unlink $file  if $image->{only};  # 「画像のみ保存」指定の場合，保存したPDFを削除する
-  }
-  #
-  #  画像として保存（旧タイプ，deprecated）
-  #
-  elsif( defined $image  &&  ref $image eq '' ) {
-    if( $image =~ m{\. ( jpe?g | png | gif ) $}ix ) {
-      my $img = Image::Magick->new;
-      $img->Read( $file );
-      $img->Resize( width => $self->{PAGE_WIDTH} * $scale, height => $self->{PAGE_HEIGHT} * $scale );
-      # 属性の設定
-      $img->Set(
-        density => sprintf( '%dx%d', $self->{DPI}, $self->{DPI} ),
-        #density => sprintf( '%dx%d', $self->{PAGE_WIDTH}, $self->{PAGE_HEIGHT} ),
-        units   => 'PixelsPerInch',
-      );
-      # 出力
-      $img->Write( filename => $image );
-      undef $img;
-    }
-
-    unlink $file  if $image_only;  # 「画像のみ保存」指定の場合，保存したPDFを削除する
-  }
-
-  1;
+    1;
 }
-
-
-
 
 
 
@@ -422,141 +403,141 @@ sub save {
 sub text {
     my $self = shift;
     my $param = +{@_};
-  #my ( $self, $param ) = self_param( @_ );
-  my $x           = $param->{x};
-  my $y           = $param->{y};
-  my $text        = $param->{text};
-  my $w           = $param->{w};
-  my $h           = $param->{h};
-  my $tate        = $param->{tate}      || 0;
-  my $ttfont      = $param->{ttfont};
-  my $fontsize    = defined $param->{fontsize} || defined $param->{size}  ?  $self->to_px( $param->{fontsize} || $param->{size} )  :  $self->_FONT_SIZE;
-  my $line_height = defined $param->{line_height}  ?  $param->{line_height}  :  $self->_LINE_HEIGHT;  # ここではまだ to_px しない
-  my $rotate      = $param->{rotate}    ||  $self->_ROTATE;
-  my $color       = $param->{color}     ||  $self->_COLOR_FILL;
-  my $debug       = $param->{debug}     ||  0;
+    my $x           = $param->{x};
+    my $y           = $param->{y};
+    my $text        = $param->{text};
+    my $w           = $param->{w};
+    my $h           = $param->{h};
+    my $tate        = $param->{tate}      || 0;
+    my $ttfont      = $param->{ttfont};
+    my $fontsize    = defined $param->{fontsize} || defined $param->{size}  ?  $self->to_px( $param->{fontsize} || $param->{size} )  :  $self->_FONT_SIZE;
+    my $line_height = defined $param->{line_height}  ?  $param->{line_height}  :  $self->_LINE_HEIGHT;  # ここではまだ to_px しない
+    my $rotate      = $param->{rotate}    ||  $self->_ROTATE;
+    my $color       = $param->{color}     ||  $self->_COLOR_FILL;
+    my $debug       = $param->{debug}     ||  0;
 
-  return 0  unless( defined $x  &&  defined $y  &&  defined $text );
+    return 0  unless( defined $x  &&  defined $y  &&  defined $text );
 
-  $w = $w  ?  $self->to_px( $w )  :  $self->_WIDTH - $self->to_px( $x );
-  $h = $h  ?  $self->to_px( $h )  :  $self->_HEIGHT - $self->to_px( $y );
+    my $PDF = $self->_PDF;
 
-  ( $x, $y ) = $self->convert_coordinate( $x, $y );
+    $w = $w  ?  $self->to_px( $w )  :  $self->_WIDTH - $self->to_px( $x );
+    $h = $h  ?  $self->to_px( $h )  :  $self->_HEIGHT - $self->to_px( $y );
 
-  $PDF->fillcolor( $color );
+    ( $x, $y ) = $self->convert_coordinate( $x, $y );
 
-  my $font = $ttfont  ?  $PDF->ttfont( $ttfont )  :  $self->_FONT;
+    $PDF->fillcolor( $color );
 
-  {
-    local $@;
-    eval {
-      $text = decode( 'utf-8', $text );
-    }
-  }
+    my $font = $ttfont  ?  $PDF->ttfont( $ttfont )  :  $self->_FONT;
 
-  # 行高さ
-  if( $line_height =~ m{^\s*(\d+(\.\d+)?)\%\s*$} ) {
-    my $val = $1;
-    $line_height = int( $fontsize * $val / 100 );
-  }
-  else { $line_height = $self->to_px( $line_height ); }
-
-  #
-  #  縦書きモード
-  #
-  if( $tate ) {
-    my $l = 0;
-    $x -= $fontsize;  # 最初の行のx座標
-    $y -= $fontsize;
-
-    $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
-    for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
-      #my $x_ = $x - $fontsize * $l++;
-      my $x_ = $x - $line_height * $l++;
-      my $c = 0;
-      for my $char ( split '', $line ) {
-        my $y_ = $y - $fontsize * $c++;
-
-        if( $MAP_YOKO2TATE->{$char} ) {
-          $PDF->print( $font, $fontsize, $x_, $y_, $rotate, 0, $MAP_YOKO2TATE->{$char} );
+    {
+        local $@;
+        eval {
+            $text = decode( 'utf-8', $text );
         }
-        elsif( $char =~ $RE->{CHAR_TATE_ROTATE} ) {
-          $PDF->print( $font, $fontsize, $x_, $y_ + $fontsize, $rotate - 90, 0, $char );
-        }
-        elsif( $char =~ $RE->{CHAR_TATE_SLIDE} ) {
-          $PDF->print( $font, $fontsize, $x_ + int( $fontsize * .7 ), $y_ + int( $fontsize * .7 ), $rotate, 0, $char );
-        }
-        else {
-          $PDF->print( $font, $fontsize, $x_, $y_, $rotate, 0, $char );
-        }
-      }
     }
 
-  }
-  #
-  #  横書きモード
-  #
-  else {
-    # テキストボックスからはみ出る部分に \x0a を挿入する
-    if( 1 ) {
-      my @tmp;
-      $text =~ s{$RE->{NL}}{\x0a}g; # 改行をLFに統一
-      for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
-        my $cursor = 0;
-        my $n_char = length $line;  # 文字数
-        my $n_char_per_row = int( $w / $fontsize );  # 行内文字数
+    # 行高さ
+    if( $line_height =~ m{^\s*(\d+(\.\d+)?)\%\s*$} ) {
+        my $val = $1;
+        $line_height = int( $fontsize * $val / 100 );
+    }
+    else { $line_height = $self->to_px( $line_height ); }
 
-        my $buff_tmp = '';
-        my $n_hankaku = 0;  # 文字列の「半角」数（全角は2でカウントする）
-        # v 空行の場合，$n_char == 0
-        if ($n_char == 0) {
-            push @tmp, '';
-            $buff_tmp = '';
-            $n_hankaku = 0;
+    #
+    #  縦書きモード
+    #
+    if( $tate ) {
+        my $l = 0;
+        $x -= $fontsize;  # 最初の行のx座標
+        $y -= $fontsize;
+
+        $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
+        for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
+            #my $x_ = $x - $fontsize * $l++;
+            my $x_ = $x - $line_height * $l++;
+            my $c = 0;
+            for my $char ( split '', $line ) {
+                my $y_ = $y - $fontsize * $c++;
+
+                if( $MAP_YOKO2TATE->{$char} ) {
+                    $PDF->print( $font, $fontsize, $x_, $y_, $rotate, 0, $MAP_YOKO2TATE->{$char} );
+                }
+                elsif( $char =~ $RE->{CHAR_TATE_ROTATE} ) {
+                    $PDF->print( $font, $fontsize, $x_, $y_ + $fontsize, $rotate - 90, 0, $char );
+                }
+                elsif( $char =~ $RE->{CHAR_TATE_SLIDE} ) {
+                    $PDF->print( $font, $fontsize, $x_ + int( $fontsize * .7 ), $y_ + int( $fontsize * .7 ), $rotate, 0, $char );
+                }
+                else {
+                    $PDF->print( $font, $fontsize, $x_, $y_, $rotate, 0, $char );
+                }
+            }
         }
-        # v 空行でない場合（このブロックは，空行の場合自ずと無視されるべき）
-        for( my $i = 0; $i < $n_char; $cursor++, $i++ ) {
-          my $char = substr( $line, $cursor, 1 );  # 1文字抜き出す
-          $n_hankaku += $char =~ $RE->{CHAR_HANKAKU}  ?  1  :  2;
+    }
+    #
+    #  横書きモード
+    #
+    else {
+        # テキストボックスからはみ出る部分に \x0a を挿入する
+        if( 1 ) {
+            my @tmp;
+            $text =~ s{$RE->{NL}}{\x0a}g; # 改行をLFに統一
+            for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
+                my $cursor = 0;
+                my $n_char = length $line;  # 文字数
+                my $n_char_per_row = int( $w / $fontsize );  # 行内文字数
 
-          $buff_tmp .= $char;
+                my $buff_tmp = '';
+                my $n_hankaku = 0;  # 文字列の「半角」数（全角は2でカウントする）
+                # v 空行の場合，$n_char == 0
+                if ($n_char == 0) {
+                    push @tmp, '';
+                    $buff_tmp = '';
+                    $n_hankaku = 0;
+                }
+                # v 空行でない場合（このブロックは，空行の場合自ずと無視されるべき）
+                for( my $i = 0; $i < $n_char; $cursor++, $i++ ) {
+                    my $char = substr( $line, $cursor, 1 );  # 1文字抜き出す
+                    $n_hankaku += $char =~ $RE->{CHAR_HANKAKU}  ?  1  :  2;
 
-          # 行内文字数を超えた，もしくは次の文字がない
-          # -1 するのはハミ出し対策
-          if( $n_hankaku >= $n_char_per_row * 2 - 1  ||  substr( $line, $cursor + 1, 1 ) !~ m{.}  ) {
-            push @tmp, $buff_tmp;
-            $buff_tmp = '';
-            $n_hankaku = 0;
-            next;
-          }
+                    $buff_tmp .= $char;
+
+                    # 行内文字数を超えた，もしくは次の文字がない
+                    # -1 するのはハミ出し対策
+                    if( $n_hankaku >= $n_char_per_row * 2 - 1  ||  substr( $line, $cursor + 1, 1 ) !~ m{.}  ) {
+                        push @tmp, $buff_tmp;
+                        $buff_tmp = '';
+                        $n_hankaku = 0;
+                        next;
+                    }
+                }
+            }
+            $text = join "\x0a", @tmp;
         }
-      }
-      $text = join "\x0a", @tmp;
+
+        my $l = 0;
+        $y -= $fontsize;  # 最初の行のy座標
+
+        $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
+        for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
+            #my $y_ = $y - $fontsize * $l++;
+            my $y_ = $y - $line_height * $l++;
+
+            my $x_ = $x;
+            for my $char ( split '', $line ) {
+                unless( $debug ) {
+                    $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $char );
+                }
+                else {
+                    my $line_ = sprintf '%2d: (%3d,%3d): %s', $l, int $x, int $y_, $line;
+                    $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $line_ );
+                }
+                $x_ += $fontsize / ( $char =~ $RE->{CHAR_HANKAKU}  ?  2 : 1 );
+            }
+        }
     }
 
-    my $l = 0;
-    $y -= $fontsize;  # 最初の行のy座標
-
-    $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
-    for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
-      #my $y_ = $y - $fontsize * $l++;
-      my $y_ = $y - $line_height * $l++;
-
-      my $x_ = $x;
-      for my $char ( split '', $line ) {
-        unless( $debug ) {
-          $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $char );
-        }
-        else {
-          my $line_ = sprintf '%2d: (%3d,%3d): %s', $l, int $x, int $y_, $line;
-          $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $line_ );
-        }
-        $x_ += $fontsize / ( $char =~ $RE->{CHAR_HANKAKU}  ?  2 : 1 );
-      }
-    }
-  }
-
-  1;
+    1;
 }
 
 
@@ -580,7 +561,6 @@ sub text {
 sub image {
     my $self = shift;
     my $param = +{@_};
-    #my ( $self, $param ) = self_param( @_ );
     my $x      = $param->{x};
     my $y      = $param->{y};
     my $file   = $param->{file};
@@ -592,6 +572,8 @@ sub image {
 
     return 0  unless  defined $x  &&  defined $y  &&  defined $file;
     return 0  unless -f $file;
+
+    my $PDF = $self->_PDF;
 
     ($x, $y) = $self->convert_coordinate($x, $y);
 
@@ -681,53 +663,54 @@ sub vline { shift->line( mode => 'vertical', @_ ); }
 sub line {
     my $self = shift;
     my $param = +{@_};
-  #my ( $self, $param ) = self_param( @_ );
-  my $mode   = $param->{mode};
-  my $x      = $param->{x};
-  my $y      = $param->{y};
-  my $length = $param->{length};
-  my $size   = $param->{size}   ||  $self->_LINE_WIDTH;
-  my $type   = $param->{type};
-  my $color  = $param->{color}  ||  $self->_COLOR_STROKE;
+    my $mode   = $param->{mode};
+    my $x      = $param->{x};
+    my $y      = $param->{y};
+    my $length = $param->{length};
+    my $size   = $param->{size}   ||  $self->_LINE_WIDTH;
+    my $type   = $param->{type};
+    my $color  = $param->{color}  ||  $self->_COLOR_STROKE;
 
-  return 0  unless( defined $mode  &&  defined $x  &&  defined $y  &&  defined  $length );
+    return 0  unless( defined $mode  &&  defined $x  &&  defined $y  &&  defined  $length );
 
-  #
-  #  horizontal
-  #
-  if( $mode eq 'horizontal' ) {
-    $length .= 'w'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ幅を対象とする
-    $size   .= 'h'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ高さを対象とする
+    my $PDF = $self->_PDF;
 
-    ( $x, $y ) = $self->convert_coordinate( $x, $y );
-    $length = $self->to_px( $length );
-    $size   = $self->to_px( $size );
+    #
+    #  horizontal
+    #
+    if( $mode eq 'horizontal' ) {
+        $length .= 'w'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ幅を対象とする
+        $size   .= 'h'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ高さを対象とする
 
-    $PDF->strokecolor( $color );
-    $PDF->linewidth( $size );
-    $PDF->move( $x, $y );
-    $PDF->line( $x + $length, $y );
-    $PDF->stroke;
-  }
-  #
-  #  vertical
-  #
-  elsif( $mode eq 'vertical' ) {
-    $length .= 'h'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ高さを対象とする
-    $size   .= 'w'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ幅を対象とする
+        ( $x, $y ) = $self->convert_coordinate( $x, $y );
+        $length = $self->to_px( $length );
+        $size   = $self->to_px( $size );
 
-    ( $x, $y ) = $self->convert_coordinate( $x, $y );
-    $length = $self->to_px( $length );
-    $size   = $self->to_px( $size );
+        $PDF->strokecolor( $color );
+        $PDF->linewidth( $size );
+        $PDF->move( $x, $y );
+        $PDF->line( $x + $length, $y );
+        $PDF->stroke;
+    }
+    #
+    #  vertical
+    #
+    elsif( $mode eq 'vertical' ) {
+        $length .= 'h'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ高さを対象とする
+        $size   .= 'w'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ幅を対象とする
 
-    $PDF->strokecolor( $color );
-    $PDF->linewidth( $size );
-    $PDF->move( $x, $y );
-    $PDF->line( $x, $y - $length );
-    $PDF->stroke;
-  }
+        ( $x, $y ) = $self->convert_coordinate( $x, $y );
+        $length = $self->to_px( $length );
+        $size   = $self->to_px( $size );
 
-  1;
+        $PDF->strokecolor( $color );
+        $PDF->linewidth( $size );
+        $PDF->move( $x, $y );
+        $PDF->line( $x, $y - $length );
+        $PDF->stroke;
+    }
+
+    1;
 }
 
 
@@ -750,41 +733,42 @@ sub line {
 sub roundrect {
     my $self = shift;
     my $param = +{@_};
-  #my ( $self, $param ) = self_param( @_ );
-  my ( $x, $y, $w, $h, $r ) = ( $param->{x}, $param->{y}, $param->{w}, $param->{h}, $param->{r} );
-  my $linewidth   = defined $param->{linewidth}  ?  $self->to_px( $param->{linewidth} )  :  $self->_LINE_WIDTH;
-  my $strokecolor = $param->{strokecolor}  ||  $self->_COLOR_STROKE;
-  my $fillcolor   = $param->{fillcolor}    ||  $self->_COLOR_FILL;
-  my $action      = $param->{action}       ||  'stroke';
+    my ( $x, $y, $w, $h, $r ) = ( $param->{x}, $param->{y}, $param->{w}, $param->{h}, $param->{r} );
+    my $linewidth   = defined $param->{linewidth}  ?  $self->to_px( $param->{linewidth} )  :  $self->_LINE_WIDTH;
+    my $strokecolor = $param->{strokecolor}  ||  $self->_COLOR_STROKE;
+    my $fillcolor   = $param->{fillcolor}    ||  $self->_COLOR_FILL;
+    my $action      = $param->{action}       ||  'stroke';
 
-  return 0  unless( defined $x  &&  defined $y  &&  defined $w  &&  defined $h  &&  defined $r );
+    return 0  unless( defined $x  &&  defined $y  &&  defined $w  &&  defined $h  &&  defined $r );
 
-  ( $x, $y ) = $self->convert_coordinate( $x, $y );
-  $w = $self->to_px( $w );
-  $h = $self->to_px( $h );
-  $r = $self->to_px( $r );
+    my $PDF = $self->_PDF;
 
-  $PDF->linewidth( $linewidth );
-  $PDF->strokecolor( $strokecolor );
-  $PDF->fillcolor( $fillcolor );
+    ( $x, $y ) = $self->convert_coordinate( $x, $y );
+    $w = $self->to_px( $w );
+    $h = $self->to_px( $h );
+    $r = $self->to_px( $r );
 
-  # パスをセット
-  $PDF->move( $x, $y - $r );
-  $PDF->curve( $x, $y - $r,  $x, $y,  $x + $r, $y );                                # 左上角丸
-  $PDF->line( $x + $w - $r, $y );                                                   # 上辺
-  $PDF->curve( $x + $w - $r, $y,  $x + $w, $y,  $x + $w, $y - $r );                 # 右上角丸
-  $PDF->line( $x + $w, $y - $h + $r );                                              # 右辺
-  $PDF->curve( $x + $w, $y - $h + $r,  $x + $w, $y - $h,  $x + $w - $r, $y - $h );  # 右下角丸
-  $PDF->line( $x + $r, $y - $h );                                                   # 下辺
-  $PDF->curve( $x + $r, $y - $h,  $x, $y - $h,  $x, $y - $h + $r );                 # 左下角丸
-  $PDF->close;                                                                      # パスを閉じることで左辺
+    $PDF->linewidth( $linewidth );
+    $PDF->strokecolor( $strokecolor );
+    $PDF->fillcolor( $fillcolor );
 
-  # 描画
-  if( $action eq 'stroke' )        { $PDF->stroke; }
-  elsif( $action eq 'fill' )       { $PDF->fill; }
-  elsif( $action eq 'fillstroke' ) { $PDF->fillstroke; }
-  else                             { $PDF->stroke; }
-  1;
+    # パスをセット
+    $PDF->move( $x, $y - $r );
+    $PDF->curve( $x, $y - $r,  $x, $y,  $x + $r, $y );                                # 左上角丸
+    $PDF->line( $x + $w - $r, $y );                                                   # 上辺
+    $PDF->curve( $x + $w - $r, $y,  $x + $w, $y,  $x + $w, $y - $r );                 # 右上角丸
+    $PDF->line( $x + $w, $y - $h + $r );                                              # 右辺
+    $PDF->curve( $x + $w, $y - $h + $r,  $x + $w, $y - $h,  $x + $w - $r, $y - $h );  # 右下角丸
+    $PDF->line( $x + $r, $y - $h );                                                   # 下辺
+    $PDF->curve( $x + $r, $y - $h,  $x, $y - $h,  $x, $y - $h + $r );                 # 左下角丸
+    $PDF->close;                                                                      # パスを閉じることで左辺
+
+    # 描画
+    if( $action eq 'stroke' )        { $PDF->stroke; }
+    elsif( $action eq 'fill' )       { $PDF->fill; }
+    elsif( $action eq 'fillstroke' ) { $PDF->fillstroke; }
+    else                             { $PDF->stroke; }
+    1;
 }
 
 
@@ -792,31 +776,31 @@ sub roundrect {
 #  ラッパ
 #
 
-
 sub importpage {
-  my $self = shift;
-  my $pdf_source   = shift;  # PDF::API2::Koromo オブジェクト
-  my $index_source = shift  ||  0;
-  my $index_target = shift  ||  0;
+    my $self = shift;
+    my $pdf_source   = shift;  # PDF::API2::Koromo オブジェクト
+    my $index_source = shift  ||  0;
+    my $index_target = shift  ||  0;
 
-  defined $pdf_source
-    ? $PDF->{api}->importpage( $pdf_source->_PDF->{api}, $index_source, $index_target )
-    : undef
-  ;
+    defined $pdf_source
+        ? $self->_PDF->{api}->importpage( $pdf_source->_PDF->{api}, $index_source, $index_target )
+        : undef
+    ;
 }
 
 
 sub pages {
-  $PDF->{api}->pages;
+    shift->_PDF->{api}->pages;
 }
 
 sub update {
-  $PDF->{api}->update;
+    shift->_PDF->{api}->update;
 }
 
 sub end {
-  $PDF->{api}->end;
+    shift->_PDF->{api}->end;
 }
+
 
 
 
