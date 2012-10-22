@@ -866,6 +866,13 @@ sub roundrect {
 }
 
 
+sub add_font_dirs {
+    shift  if $_[0] eq __PACKAGE__  ||  ref($_[0]) eq __PACKAGE__;
+    my @dirs = @_;
+    return PDF::API2::addFontDirs(@dirs);
+}
+
+
 #
 #  ラッパ
 #
@@ -1051,6 +1058,11 @@ B<%options>
   strokecolor
   fillcolor
   action  描画方法． stroke, fill, fillstroke
+
+=item @font_dirs_all = PDF::API2::Koromo->add_font_dirs( @font_dirs );
+
+Adds default font directories.
+
 
 =back
 
