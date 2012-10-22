@@ -18,16 +18,27 @@ use utf8;
 use Data::Validator;
 use PDF::API2;
 use PDF::API2::Lite;
-use Image::Magick;
-use Image::Size;
+use Image::Size ();
+# use Image::Magick;
 use Encode;
 use Carp;
 use Try::Tiny;
+use PDF::API2::Koromo::Types qw/Measure Unit Color LineMode DrawAction/;
+use MouseX::Types::Mouse qw/Bool Str Num Int/;
 use Class::Accessor::Lite (
     new => 0,
     rw  => [qw/
-        _PDF _MEASURE _DPI _WIDTH _HEIGHT _FONT _FONT_SIZE _LINE_HEIGHT _ROTATE _COLOR_STROKE _COLOR_FILL _LINE_WIDTH
-        measure dpi width height ttfont fontsize line_height strokecolor fillcolor linewidth
+        _PDF _DPI _MEASURE
+        _MM2PX_RATE _PT2PX_RATE
+        _WIDTH _HEIGHT
+        _FONT _FONT_SIZE _LINE_HEIGHT
+        _ROTATE _COLOR_STROKE _COLOR_FILL _LINE_WIDTH
+
+        measure dpi width height
+        ttfont fontsize line_height
+        strokecolor fillcolor linewidth
+
+        _ua _tmpfiles
     /],
 );
 use constant +{
@@ -82,29 +93,26 @@ sub new {
     my $self = bless {}, $class;
 
     my $v = Data::Validator->new(
-        measure     => { isa => 'Str', default => DEFAULT_MEASURE },
-        dpi         => { isa => 'Int', default => DEFAULT_DPI },
-        width       => { isa => 'Str', default => DEFAULT_PAGE_WIDTH },
-        height      => { isa => 'Str', default => DEFAULT_PAGE_HEIGHT },
-        ttfont      => { isa => 'Str', optional => 1 },
-        fontsize    => { isa => 'Str', default => DEFAULT_FONT_SIZE },
-        line_height => { isa => 'Str', default => DEFAULT_LINE_HEIGHT },
-        strokecolor => { isa => 'Str', default => DEFAULT_COLOR_STROKE },
-        fillcolor   => { isa => 'Str', default => DEFAULT_COLOR_FILL },
-        linewidth   => { isa => 'Str', default => DEFAULT_LINE_WIDTH },
+        measure     => { isa => Measure, default => DEFAULT_MEASURE },
+        dpi         => { isa => Int, default => DEFAULT_DPI },
+        width       => { isa => Unit, default => DEFAULT_PAGE_WIDTH },
+        height      => { isa => Unit, default => DEFAULT_PAGE_HEIGHT },
+        ttfont      => { isa => Str, optional => 1 },
+        fontsize    => { isa => Unit, default => DEFAULT_FONT_SIZE },
+        line_height => { isa => Str, default => DEFAULT_LINE_HEIGHT },
+        strokecolor => { isa => Color, default => DEFAULT_COLOR_STROKE },
+        fillcolor   => { isa => Color, default => DEFAULT_COLOR_FILL },
+        linewidth   => { isa => Str, default => DEFAULT_LINE_WIDTH },
     );
-    %params = %{ $v->validate({%params}) };
+    %params = %{ $v->validate(%params) };
 
-    $self->measure( $params{measure} );
-    $self->dpi( $params{dpi} );
-    $self->width( $params{width} );
-    $self->height( $params{height} );
-    $self->ttfont( $params{ttfont} );
-    $self->fontsize( $params{fontsize} );
-    $self->line_height( $params{line_height} );
-    $self->strokecolor( $params{strokecolor} );
-    $self->fillcolor( $params{fillcolor} );
-    $self->linewidth( $params{linewidth} );
+    for my $meth (qw/
+        measure dpi width height
+        ttfont fontsize line_height
+        strokecolor fillcolor linewidth
+    /) {
+        $self->$meth( $params{$meth} );
+    }
 
     return $self->_init(%params);
 }
@@ -114,13 +122,15 @@ sub new {
 #
 sub _init {
     my ($self, %params) = @_;
+    my $PDF;
 
     $self->_DPI( $self->dpi );
     $self->_MEASURE( $self->measure );
+    $self->_MM2PX_RATE( $self->_DPI / 25.4 );
+    $self->_PT2PX_RATE( $self->_DPI / 72 );
     $self->_WIDTH( $self->to_px( $self->width ) );
     $self->_HEIGHT( $self->to_px( $self->height ) );
 
-    my $PDF;
     $self->_PDF( $PDF = PDF::API2::Lite->new );
     $self->page;
 
@@ -135,7 +145,16 @@ sub _init {
     $PDF->strokecolor($self->_COLOR_STROKE);
     $PDF->fillcolor($self->_COLOR_FILL);
 
-    $self;
+    $self->_tmpfiles([]);
+
+    return $self;
+}
+
+sub DESTROY {
+    my $self = shift;
+    for my $f ( @{$self->_tmpfiles} ) {
+        unlink $f;
+    }
 }
 
 
@@ -147,9 +166,13 @@ sub _init {
 #  @return  scalar  ピクセル数
 #
 sub to_px {
-    my $self = shift;
-    my $length = shift  ||  0;
+    my ($self, @args) = @_;
+    my $v = Data::Validator->new(
+        length => { isa => Unit },
+    )->with('StrictSequenced');
+    my %params = %{ $v->validate(@args) };
 
+    my $length = $params{length};
     my ($val, $measure) = $length =~ $RE->{LENGTH};
     $measure = $self->_MEASURE  unless defined $measure;
     return 0  unless defined $val;
@@ -181,18 +204,20 @@ sub to_px {
 #  @return  scalar  ピクセル数
 #
 sub mm {
-    my ($self, $mm) = @_;
-    my $mm2px_rate = $self->_DPI / 25.4;
-    return int(($mm || 0) * $mm2px_rate);
+    my ($self, @args) = @_;
+    my $v = Data::Validator->new( mm => { isa => Int } )->with('StrictSequenced');
+    my %params = %{ $v->validate(@args) };
+    return int( $params{mm} * $self->_MM2PX_RATE );
 };
 
 #
 #  [pt] を [px] に変換する
 #
 sub pt {
-    my ($self, $pt) = @_;
-    my $pt2px_rate = $self->_DPI / 72;
-    return int(($pt || 0) * $pt2px_rate);
+    my ($self, @args) = @_;
+    my $v = Data::Validator->new( pt => { isa => Int } )->with('StrictSequenced');
+    my %params = %{ $v->validate(@args) };
+    return int( $params{pt} * $self->_PT2PX_RATE );
 }
 
 #
@@ -205,35 +230,22 @@ sub pt {
 #  @return  ( scalar, scalar )  変換後の座標
 #
 sub convert_coordinate {
-    my $self = shift;
-    my ($x, $y) = @_;
+    my ($self, @args) = @_;
+    my $v = Data::Validator->new(
+        x => { isa => Unit },
+        y => { isa => Unit },
+    )->with('StrictSequenced');
+    my %params = %{ $v->validate(@args) };
+
+    my ($x, $y) = @params{qw/x y/};
+
     $x .= 'w'  if $x =~ m{\%\s*$};
     $y .= 'h'  if $y =~ m{\%\s*$};
-
-    carp 'not specified x or/and y'  unless defined  $x  &&  defined $y;
 
     return (
         $self->to_px($x),
         $self->_HEIGHT - $self->to_px($y),
     );
-}
-
-
-
-#
-#
-#
-sub load {
-    my $self = shift;
-    my $param = +{@_};
-    my $file = $param->{file};
-    try {
-        $self->_PDF->{api} = PDF::API2->open($file);
-    }
-    catch {
-        carp shift;
-        $self->_PDF->{api} = undef;
-    }
 }
 
 
@@ -270,6 +282,24 @@ sub rotatepage {
 
 
 #
+# NOT IMPLEMENTED!
+#
+sub load {
+    my $self = shift;
+    my $param = +{@_};
+    my $file = $param->{file};
+    try {
+        $self->_PDF->{api} = PDF::API2->open($file);
+    }
+    catch {
+        carp shift;
+        $self->_PDF->{api} = undef;
+    }
+}
+
+
+
+#
 #  PDFを保存する
 #  拡張子が画像系の場合，画像に変換して保存する
 #
@@ -294,47 +324,54 @@ sub rotatepage {
 #  @return   scalar  保存できたら 1，失敗したら 0．．．のつもり
 #
 sub save {
-    my $self = shift;
-    my $param = +{@_};
-    my $file       = $param->{file}        ||  '';
-    my $image      = $param->{image};
-    my $scale      = $param->{scale}       ||  1;
-    my $image_only = $param->{image_only}  ||  0;
+    my ($self, %params) = @_;
+    my $v = Data::Validator->new(
+        as       => { isa => Str,     default => undef },
+        file     => { isa => Str,     default => undef },  # synonym of 'as'
+        as_image => { isa => 'HashRef', default => undef },
+        scale    => { isa => 'Num',     default => 1 },
+    );
+    %params = %{ $v->validate(%params) };
 
-    return 0  unless $file;
+    my $file     = exists $params{as} ? $params{as} : $params{file};
+    my $as_image = $params{as_image};
+    my $scale    = $params{scale};
+
+    if ( ! defined $file  &&  defined $as_image ) {
+        $file = "$as_image->{file}.pdf";
+        $as_image->{only} = 1;
+    }
+
     return 0  unless $self->_PDF->{api}->{pdf};  # 一度saveを呼び出すと，この値（？）は undef される． ← PDF::API2::out_file あたりを参照
 
-    #
-    #  PDF を保存
-    #
+    ### PDF を保存
     $self->_PDF->saveas( $file )  ||  die $!;
 
+    ### 画像として保存（新タイプ）
+    if( defined $as_image  &&  ref $as_image eq 'HASH' ) {
+        if( $as_image->{file} =~ m{\. ( jpe?g | png | gif ) $}ix ) {
+            require Image::Magick;
 
-    #
-    #  画像として保存（新タイプ）
-    #
-    if( defined $image  &&  ref $image eq 'HASH' ) {
-        if( $image->{file} =~ m{\. ( jpe?g | png | gif ) $}ix ) {
             my $img = Image::Magick->new;
             $img->Read( filename => $file );
 
             # 幅，高さ指定時
-            if( $image->{width}  ||  $image->{height} ) {
+            if( $as_image->{width}  ||  $as_image->{height} ) {
                 $img->Resize(
-                    width  => $self->to_px( $image->{width}  ||  $image->{height} ),
-                    height => $self->to_px( $image->{height}  ||  $image->{width} ),
+                    width  => $self->to_px( $as_image->{width}  ||  $as_image->{height} ),
+                    height => $self->to_px( $as_image->{height}  ||  $as_image->{width} ),
                 );
             }
             # 格納正方形指定時
-            elsif( $image->{square} ) {
-                my $geometry = sprintf '%dx%d', $self->to_px( $image->{square} ), $self->to_px( $image->{square} );
+            elsif( $as_image->{square} ) {
+                my $geometry = sprintf '%dx%d', $self->to_px( $as_image->{square} ), $self->to_px( $as_image->{square} );
                 $img->Resize( geometry => $geometry );
             }
             # 倍率指定時
-            elsif( defined $image->{scale} ) {
+            elsif( defined $as_image->{scale} ) {
                 $img->Resize(
-                    width  => $self->_WIDTH  * $image->{scale},
-                    height => $self->_HEIGHT * $image->{scale},
+                    width  => $self->_WIDTH  * $as_image->{scale},
+                    height => $self->_HEIGHT * $as_image->{scale},
                 );
             }
 
@@ -344,17 +381,17 @@ sub save {
             #     units   => 'PixelsPerInch',
             # );
             # 出力
-            $img->Write( filename => $image->{file} );
+            $img->Write( filename => $as_image->{file} );
             undef $img;
         }
 
-        unlink $file  if $image->{only};  # 「画像のみ保存」指定の場合，保存したPDFを削除する
+        unlink $file  if $as_image->{only};  # 「画像のみ保存」指定の場合，保存したPDFを削除する
     }
-    #
-    #  画像として保存（旧タイプ，deprecated）
-    #
-    elsif( defined $image  &&  ref $image eq '' ) {
-        if( $image =~ m{\. ( jpe?g | png | gif ) $}ix ) {
+    ### 画像として保存（旧タイプ，deprecated）
+    elsif( defined $as_image  &&  ref $as_image eq '' ) {
+        if( $as_image =~ m{\. ( jpe?g | png | gif ) $}ix ) {
+            require Image::Magick;
+
             my $img = Image::Magick->new;
             $img->Read( $file );
             $img->Resize( width => $self->{PAGE_WIDTH} * $scale, height => $self->{PAGE_HEIGHT} * $scale );
@@ -365,11 +402,11 @@ sub save {
                 units   => 'PixelsPerInch',
             );
             # 出力
-            $img->Write( filename => $image );
+            $img->Write( filename => $as_image );
             undef $img;
         }
 
-        unlink $file  if $image_only;  # 「画像のみ保存」指定の場合，保存したPDFを削除する
+        unlink $file  if $as_image->{only};  # 「画像のみ保存」指定の場合，保存したPDFを削除する
     }
 
     1;
@@ -401,33 +438,50 @@ sub save {
 #  @return
 #
 sub text {
-    my $self = shift;
-    my $param = +{@_};
-    my $x           = $param->{x};
-    my $y           = $param->{y};
-    my $text        = $param->{text};
-    my $w           = $param->{w};
-    my $h           = $param->{h};
-    my $tate        = $param->{tate}      || 0;
-    my $ttfont      = $param->{ttfont};
-    my $fontsize    = defined $param->{fontsize} || defined $param->{size}  ?  $self->to_px( $param->{fontsize} || $param->{size} )  :  $self->_FONT_SIZE;
-    my $line_height = defined $param->{line_height}  ?  $param->{line_height}  :  $self->_LINE_HEIGHT;  # ここではまだ to_px しない
-    my $rotate      = $param->{rotate}    ||  $self->_ROTATE;
-    my $color       = $param->{color}     ||  $self->_COLOR_FILL;
-    my $debug       = $param->{debug}     ||  0;
+    #my $self = shift;
+    my ($self, %params) = @_;
 
-    return 0  unless( defined $x  &&  defined $y  &&  defined $text );
+    my $v = Data::Validator->new(
+        x           => { isa => Unit },
+        y           => { isa => Unit },
+        text        => { isa => Str },
+        w           => { isa => Unit, optional => 1 },
+        h           => { isa => Unit, optional => 1 },
+        tate        => { isa => Bool, default => 0 },
+        ttfont      => { isa => Str, default => $self->ttfont },
+        fontsize    => { isa => Unit, default => 0 },  # synonym of size
+        size        => { isa => Unit, default => $self->fontsize },
+        line_height => { isa => Str, default => $self->_LINE_HEIGHT },
+        rotate      => { isa => Num, default => $self->_ROTATE },
+        color       => { isa => Color, default => $self->_COLOR_FILL },
+        debug       => { isa => Bool, default => 0 },
+    );
+    %params = %{ $v->validate(%params) };
 
     my $PDF = $self->_PDF;
 
-    $w = $w  ?  $self->to_px( $w )  :  $self->_WIDTH - $self->to_px( $x );
-    $h = $h  ?  $self->to_px( $h )  :  $self->_HEIGHT - $self->to_px( $y );
+    my $x           = $params{x};
+    my $y           = $params{y};
+    my $text        = $params{text};
+    my $w           = $params{w};
+    my $h           = $params{h};
+    my $tate        = $params{tate};
+    my $ttfont      = $params{ttfont};
+    my $fontsize    = $self->to_px( $params{fontsize} || $params{size} );
+    my $line_height = $params{line_height};  # ここではまだ to_px しない
+    my $rotate      = $params{rotate};
+    my $color       = $params{color};
+    my $debug       = $params{debug};
+    my $font        = defined $ttfont ? $PDF->ttfont($ttfont) : $self->_FONT;
 
-    ( $x, $y ) = $self->convert_coordinate( $x, $y );
+    die 'Font is not set.'  unless defined $font;
+
+    ($x, $y) = $self->convert_coordinate($x, $y);
+
+    $w = defined $w ? $self->to_px($w) : $self->_WIDTH - $self->to_px($x);
+    $h = defined $h ? $self->to_px($h) : $self->_HEIGHT - $self->to_px($y);
 
     $PDF->fillcolor( $color );
-
-    my $font = $ttfont  ?  $PDF->ttfont( $ttfont )  :  $self->_FONT;
 
     {
         local $@;
@@ -559,73 +613,96 @@ sub text {
 #  @return
 #
 sub image {
-    my $self = shift;
-    my $param = +{@_};
-    my $x      = $param->{x};
-    my $y      = $param->{y};
-    my $file   = $param->{file};
-    my $width  = defined $param->{width}  ? $param->{width}  : 0;
-    my $height = defined $param->{height} ? $param->{height} : 0;
-    my $scale  = defined $param->{scale}  ? $param->{scale}  : 1;
-    my $rotate = $param->{rotate} || 0;
-    my $debug  = $param->{debug}  || 0;
-
-    return 0  unless  defined $x  &&  defined $y  &&  defined $file;
-    return 0  unless -f $file;
+    my ($self, %params) = @_;
+    my $v = Data::Validator->new(
+        x           => { isa => Unit },
+        y           => { isa => Unit },
+        file        => { isa => Str, xor => 'url' },
+        url         => { isa => Str, xor => 'file' },
+        width       => { isa => Unit, optional => 1, xor => 'scale' },
+        height      => { isa => Unit, optional => 1, xor => 'scale' },
+        keep_aspect => { isa => Bool, optional => 1, xor => 'scale' },
+        scale       => { isa => Num, optional => 1, xor => [qw/width height keep_aspect/], },
+        rotate      => { isa => Num, default => 0 },
+        debug       => { isa => Bool, default => 0 },
+    );
+    %params = %{ $v->validate(%params) };
 
     my $PDF = $self->_PDF;
 
-    ($x, $y) = $self->convert_coordinate($x, $y);
+    my $x           = $params{x};
+    my $y           = $params{y};
+    my $file        = $params{file};
+    my $url         = $params{url};
+    my $width       = $params{width};
+    my $height      = $params{height};
+    my $scale       = $params{scale};
+    my $keep_aspect = $params{keep_aspect};
+    my $rotate      = $params{rotate};
+    my $debug       = $params{debug};
 
-    $width  .= 'w'  if $width  =~ m{\%\s*$};
-    $height .= 'h'  if $height =~ m{\%\s*$};
-    $width  = $self->to_px($width);
-    $height = $self->to_px($height);
+    my ($w, $h, $type, $img);
 
-    my ($w, $h, $type) = imgsize($file);
-    my $img;
-    my $flg = 1;
+    ### 画像URL指定時，その画像を一時ファイルとして保存し，それを $file として扱う
+    if ( defined $url ) {
+        require Furl;
+        require File::Temp;
 
-    # 幅，高さが未定義の場合
-    $width ||= $w;  $height ||= $h;
+        my $fh;
+        ($fh, $file) = File::Temp::tempfile( UNLINK => 0 );  # remove on DESCTROY
 
-    # 幅・高さどちらも指定
-    if ($width  &&  $height) {
-        1;
+        my $ua = $self->_ua || Furl->new(
+            agent   => "PDF::API2::Koromo/$VERSION",
+            timeout => 10,
+        );
+        my $res = $ua->get($url);
+        if ( $res->code != 200 ) {
+            die 'Fetching image has failed: ' . $res->status_line;
+        }
+
+        $fh->print( $res->content );
+        push @{ $self->_tmpfiles }, $file;
     }
-    # 幅のみ指定
-    elsif ($width) {
-        $scale = $width / $w;
-    }
-    # 高さのみ指定
-    elsif ($height) {
-        $scale = $height / $h;
-    }
+
+    -f $file  or  die 'Image file does not exist: ' . $file;
+
+    ($w, $h, $type) = Image::Size::imgsize($file);
+    die 'Unavailable image type: ' . $type  if $type !~ /^(jpg|png|tif)$/i;
 
     # JPG
-    if (uc $type eq 'JPG') {
-        $img = $PDF->image_jpeg($file);
-    }
+    if (uc $type eq 'JPG')    { $img = $PDF->image_jpeg($file) }
     # PNG
-    elsif (uc $type eq 'PNG') {
-        $img = $PDF->image_png($file);
-    }
+    elsif (uc $type eq 'PNG') { $img = $PDF->image_png($file) }
     # TIF
-    elsif (uc $type eq 'TIF') {
-        $img = $PDF->image_tiff($file);
-    }
-    else {
-        $flg = 0;
-    }
+    elsif (uc $type eq 'TIF') { $img = $PDF->image_tiff($file) }
 
-    if ($flg) {
-        $width  &&  $height
-            ?  $PDF->image($img, $x, $y - $height, $width, $height)
-            :  $PDF->image($img, $x, $y - int($h * $scale), $scale)
-        ;
+    if ( defined $scale ) {
+        $width  = $w * $scale;
+        $height = $h * $scale;
     }
+    elsif ( defined $width  &&  defined $height ) {
+        $width  = $self->to_px($width);
+        $height = $self->to_px($height);
+    }
+    elsif ( defined $width  &&  ! defined $height ) {
+        my $r = $h / $w;
+        $width = $self->to_px($width);
+        $height = $keep_aspect ? $width * $r : $h;
+    }
+    elsif ( ! defined $width  &&  defined $height ) {
+        my $r = $w / $h;
+        $height = $self->to_px($height);
+        $width = $keep_aspect ? $height * $r : $w;
+    }
+    $width  = $w  unless defined $width;
+    $height = $h  unless defined $height;
 
-    $flg ? 1 : 0;
+    ($x, $y) = $self->convert_coordinate($x, $y);
+    $y -= $height;
+
+    $PDF->image( $img, $x, $y , $width, $height );
+
+    return 1;
 }
 
 
@@ -645,8 +722,8 @@ sub image {
 #
 #  @return
 #
-sub hline { shift->line( mode => 'horizontal', @_ ); }
-sub vline { shift->line( mode => 'vertical', @_ ); }
+sub hline { shift->line( mode => 'h', @_ ); }
+sub vline { shift->line( mode => 'v', @_ ); }
 #
 #  直線を描画する
 #
@@ -661,24 +738,30 @@ sub vline { shift->line( mode => 'vertical', @_ ); }
 #  @return
 #
 sub line {
-    my $self = shift;
-    my $param = +{@_};
-    my $mode   = $param->{mode};
-    my $x      = $param->{x};
-    my $y      = $param->{y};
-    my $length = $param->{length};
-    my $size   = $param->{size}   ||  $self->_LINE_WIDTH;
-    my $type   = $param->{type};
-    my $color  = $param->{color}  ||  $self->_COLOR_STROKE;
-
-    return 0  unless( defined $mode  &&  defined $x  &&  defined $y  &&  defined  $length );
+    my ($self, %params) = @_;
+    my $v = Data::Validator->new(
+        mode   => { isa => LineMode },
+        x      => { isa => Unit },
+        y      => { isa => Unit },
+        length => { isa => Unit },
+        size   => { isa => Unit, default => $self->_LINE_WIDTH },
+        color  => { isa => Color, default => $self->_COLOR_STROKE },
+    );
+    %params = %{ $v->validate(%params) };
 
     my $PDF = $self->_PDF;
+
+    my $mode   = $params{mode};
+    my $x      = $params{x};
+    my $y      = $params{y};
+    my $length = $params{length};
+    my $size   = $params{size};
+    my $color  = $params{color};
 
     #
     #  horizontal
     #
-    if( $mode eq 'horizontal' ) {
+    if ( $mode =~ /^h(orizontal)?$/  ) {
         $length .= 'w'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ幅を対象とする
         $size   .= 'h'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ高さを対象とする
 
@@ -695,7 +778,7 @@ sub line {
     #
     #  vertical
     #
-    elsif( $mode eq 'vertical' ) {
+    elsif ( $mode =~ /^v(ertical)?$/ ) {
         $length .= 'h'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ高さを対象とする
         $size   .= 'w'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ幅を対象とする
 
@@ -731,17 +814,27 @@ sub line {
 #  @return
 #
 sub roundrect {
-    my $self = shift;
-    my $param = +{@_};
-    my ( $x, $y, $w, $h, $r ) = ( $param->{x}, $param->{y}, $param->{w}, $param->{h}, $param->{r} );
-    my $linewidth   = defined $param->{linewidth}  ?  $self->to_px( $param->{linewidth} )  :  $self->_LINE_WIDTH;
-    my $strokecolor = $param->{strokecolor}  ||  $self->_COLOR_STROKE;
-    my $fillcolor   = $param->{fillcolor}    ||  $self->_COLOR_FILL;
-    my $action      = $param->{action}       ||  'stroke';
-
-    return 0  unless( defined $x  &&  defined $y  &&  defined $w  &&  defined $h  &&  defined $r );
+    my ($self, %params) = @_;
+    my $v = Data::Validator->new(
+        x           => { isa => Unit },
+        y           => { isa => Unit },
+        w           => { isa => Unit },
+        h           => { isa => Unit },
+        r           => { isa => Unit },
+        linewidth   => { isa => Unit, default => $self->_LINE_WIDTH },
+        strokecolor => { isa => Color, default => $self->_COLOR_STROKE },
+        fillcolor   => { isa => Color, default => $self->_COLOR_FILL },
+        action      => { isa => DrawAction, default => 'stroke' },
+    );
+    %params = %{ $v->validate(%params) };
 
     my $PDF = $self->_PDF;
+
+    my ($x, $y, $w, $h, $r) = @params{qw/x y w h r/};
+    my $linewidth   = $params{linewidth};
+    my $strokecolor = $params{strokecolor};
+    my $fillcolor   = $params{fillcolor};
+    my $action      = $params{action};
 
     ( $x, $y ) = $self->convert_coordinate( $x, $y );
     $w = $self->to_px( $w );
@@ -764,11 +857,12 @@ sub roundrect {
     $PDF->close;                                                                      # パスを閉じることで左辺
 
     # 描画
-    if( $action eq 'stroke' )        { $PDF->stroke; }
+    if   ( $action eq 'stroke' )     { $PDF->stroke; }
     elsif( $action eq 'fill' )       { $PDF->fill; }
     elsif( $action eq 'fillstroke' ) { $PDF->fillstroke; }
-    else                             { $PDF->stroke; }
-    1;
+    else                             { die "action \"$action\" is not supported." }
+
+    return 1;
 }
 
 
@@ -809,7 +903,7 @@ __END__
 
 =head1 NAME
 
-PDF::API2::Koromo - A wrapper of PDF::API2.
+PDF::API2::Koromo - B<**ALPHA QUALITY**>  A wrapper of PDF::API2.
 
 =head1 SYNOPSIS
 
@@ -829,7 +923,7 @@ PDF::API2::Koromo is a wrapper of PDF::API2.
 
 =over 4
 
-=item $pdf = Megane::Tool::PDF->new( %options )
+=item $pdf = PDF::API2::Koromo->new( %options )
 
 B<%options>:
   measure => $measure
@@ -863,14 +957,15 @@ B<%options>:
 
 単位つきの数値（文字列）をピクセル値に変換する．
 
+"mm", "cm", "pt", "%w", "%h" and  "px" are available.
 
 =item $px = $pdf->mm( $mm )
 
-ミリメートル値をピクセル値に変換する．
+Converts from [mm] to [px].
 
 =item $px = $pdf->pt( $pt )
 
-ポイント値をピクセル値に変換する．
+Converts from [pt] to [px].
 
 =item ( $x_new, $y_new ) = $pdf->convert_coordinate( $x, $y )
 
@@ -879,23 +974,23 @@ B<%options>:
 
 =item $pdf->load( $file )
 
-未実装．
+NOT IMPLEMENTED.
 
 =item $pdf->page
 
-新しいページを作成する．
+Creates new page.
 
 =item $pdf->save( file => $file [, image => $image, scale => $scale, image_only => $image_only] )
 
-PDFや画像として保存する．
+Saves as PDF or image.
 
 =item $pdf->ttfont( $ttf_file )
 
-TrueTypeフォントを設定する．
+Sets TryeType Font.
 
 =item $pdf->text( x => $x, y => $y, text => $text [, %options ] )
 
-テキストを描画する．
+Draws text.
 
 B<%options>:
   w
@@ -911,7 +1006,7 @@ B<%options>:
 
 =item $pdf->image( x => $x, y => $y, file => $image_file [, %options ] )
 
-画像を配置する．
+Locates image.
 
 B<%options>:
   width
@@ -922,7 +1017,7 @@ B<%options>:
 
 =item $pdf->hline( x => $x, y => $y, length => $length [, %options ] )
 
-水平線を描画する．
+Draws a horizontal line.
 
 B<%options>:
   size
@@ -931,7 +1026,7 @@ B<%options>:
 
 =item $pdf->vline( x => $x, y => $y, length => $length [, %options ] )
 
-水平線を描画する．
+Draws a vertical line.
 
 B<%options>:
   size
@@ -940,7 +1035,7 @@ B<%options>:
 
 =item $pdf->line( mode => $mode, x => $x, y => $y [, %options ] )
 
-直線を描画する．
+Draws a line.
 
 B<%options>:
   size
@@ -949,7 +1044,7 @@ B<%options>:
 
 =item $pdf->roundrect( x => $x, y => $y, w => $w, h => $h, r => $r [, %options ] )
 
-角丸長方形を描画する．
+Draws a rounded rectangle.
 
 B<%options>
   linewidth

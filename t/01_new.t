@@ -1,8 +1,9 @@
 use strict;
 use Test::More;
 use PDF::API2::Koromo;
+use t::Util;
 
-my $pdf = PDF::API2::Koromo->new;
+my $pdf = new_object();
 isa_ok $pdf, 'PDF::API2::Koromo';
 
 done_testing;
