@@ -37,6 +37,7 @@ use Class::Accessor::Lite (
         measure dpi width height
         ttfont fontsize line_height
         strokecolor fillcolor linewidth
+        file
 
         _ua _tmpfiles
     /],
@@ -103,6 +104,7 @@ sub new {
         strokecolor => { isa => Color, default => DEFAULT_COLOR_STROKE },
         fillcolor   => { isa => Color, default => DEFAULT_COLOR_FILL },
         linewidth   => { isa => Str, default => DEFAULT_LINE_WIDTH },
+        file        => { isa => Str, optional => 1 },
     );
     %params = %{ $v->validate(%params) };
 
@@ -110,6 +112,7 @@ sub new {
         measure dpi width height
         ttfont fontsize line_height
         strokecolor fillcolor linewidth
+        file
     /) {
         $self->$meth( $params{$meth} );
     }
@@ -123,6 +126,8 @@ sub new {
 sub _init {
     my ($self, %params) = @_;
     my $PDF;
+    my %api2_params;
+    $api2_params{-file} = $params{file}  if exists $params{file};
 
     $self->_DPI( $self->dpi );
     $self->_MEASURE( $self->measure );
@@ -131,7 +136,7 @@ sub _init {
     $self->_WIDTH( $self->to_px( $self->width ) );
     $self->_HEIGHT( $self->to_px( $self->height ) );
 
-    $self->_PDF( $PDF = PDF::API2::Lite->new );
+    $self->_PDF( $PDF = PDF::API2::Lite->new(%api2_params) );
     $self->page;
 
     $self->_FONT( $PDF->ttfont( $self->ttfont ) )  if defined $self->ttfont;
