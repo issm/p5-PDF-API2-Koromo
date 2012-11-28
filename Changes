@@ -1,5 +1,11 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_03 2012-11-28 17:20
+        - ->image() can fetch from web, passing parameter "url" (requires Furl)
+        - added PDF::API2::Koromo::Types for type definition
+        - added some tests
+        - refactored
+
 0.00_02 2011-05-16 08:45
         - requires Class::Accessor::Lite, insted of Class::Accessor::Faster
         - requires Data::Validator
