@@ -1,5 +1,9 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_04 2012-11-29 11:08
+        - ->new() can be passed "file" parameter, like PDF::API2->new(file => $file)
+        - ->importpage() can be passed path string to source PDF-file
+
 0.00_03 2012-11-28 17:20
         - ->image() can fetch from web, passing parameter "url" (requires Furl)
         - added PDF::API2::Koromo::Types for type definition
