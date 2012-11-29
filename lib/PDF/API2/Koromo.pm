@@ -24,7 +24,7 @@ use Encode;
 use Carp;
 use Try::Tiny;
 use PDF::API2::Koromo::Types qw/Measure Unit Color LineMode DrawAction/;
-use MouseX::Types::Mouse qw/Bool Str Num Int/;
+use MouseX::Types::Mouse qw/Bool Str Num Int is_Int Object/;
 use Class::Accessor::Lite (
     new => 0,
     rw  => [qw/
@@ -282,6 +282,52 @@ sub rotatepage {
     my $page   = $param->{page} || -1;
     my $degree = $param->{degree} || $param->{deg} || 0;
     $self->openpage(page => $page)->rotate($degree);
+}
+
+
+#
+#  指定したPDFを取り込む
+#
+sub importpage {
+    my ($self, %params) = @_;
+    my $v = Data::Validator->new(
+        pdf  => { isa => Str|Object },
+        page => { isa => Int|Object, default => 1 },
+        into => { isa => Int|Object, default => 1 },
+    );
+    %params = %{ $v->validate(\%params) };
+
+    my ($pdf, $page, $into);
+
+    ### pdf
+    my $ref_pdf = ref $params{pdf};
+    if ( $ref_pdf eq '' ) {
+        $pdf = PDF::API2->open($params{pdf});
+    }
+    elsif ( $ref_pdf eq __PACKAGE__ ) {
+        $pdf = $self->_PDF->{api};
+    }
+    # elsif ( $ref_pdf eq 'PDF::API2::Lite' ) {
+    # }
+    else {
+        $pdf = $params{pdf};
+    }
+
+    ### page
+    if ( is_Int($params{page}) ) {
+        $page = $pdf->openpage($params{page});
+        # xxx: ここで openpage すると $page->{' fixed'} == 0 となってしまうので，1にセットする
+        # ref($params{page}) eq 'PDF::API2::Page' のとき，その ->{' fixed'} は 1 となっている．why?
+        $page->{' fixed'} = 1;
+    }
+    else {
+        $page = $params{page};
+    }
+
+    ### into
+    $into = $params{into};
+
+    $self->_PDF->{api}->importpage( $pdf, $page, $into );
 }
 
 
@@ -881,19 +927,6 @@ sub add_font_dirs {
 #
 #  ラッパ
 #
-
-sub importpage {
-    my $self = shift;
-    my $pdf_source   = shift;  # PDF::API2::Koromo オブジェクト
-    my $index_source = shift  ||  0;
-    my $index_target = shift  ||  0;
-
-    defined $pdf_source
-        ? $self->_PDF->{api}->importpage( $pdf_source->_PDF->{api}, $index_source, $index_target )
-        : undef
-    ;
-}
-
 
 sub pages {
     shift->_PDF->{api}->pages;
