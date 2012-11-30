@@ -493,37 +493,39 @@ sub text {
     my ($self, %params) = @_;
 
     my $v = Data::Validator->new(
-        x           => { isa => Unit },
-        y           => { isa => Unit },
-        text        => { isa => Str },
-        w           => { isa => Unit, optional => 1 },
-        h           => { isa => Unit, optional => 1 },
-        tate        => { isa => Bool, default => 0 },
-        ttfont      => { isa => Str, default => $self->ttfont },
-        fontsize    => { isa => Unit, default => 0 },  # synonym of size
-        size        => { isa => Unit, default => $self->fontsize },
-        line_height => { isa => Str, default => $self->_LINE_HEIGHT },
-        rotate      => { isa => Num, default => $self->_ROTATE },
-        color       => { isa => Color, default => $self->_COLOR_FILL },
-        debug       => { isa => Bool, default => 0 },
+        x            => { isa => Unit },
+        y            => { isa => Unit },
+        text         => { isa => Str },
+        w            => { isa => Unit, optional => 1 },
+        h            => { isa => Unit, optional => 1 },
+        tate         => { isa => Bool, default => 0 },
+        ttfont       => { isa => Str, default => $self->ttfont },
+        fontsize     => { isa => Unit, default => 0 },  # synonym of size
+        size         => { isa => Unit, default => $self->fontsize },
+        line_height  => { isa => Str, default => $self->_LINE_HEIGHT },
+        char_spacing => { isa => Unit, default => 0 },
+        rotate       => { isa => Num, default => $self->_ROTATE },
+        color        => { isa => Color, default => $self->_COLOR_FILL },
+        debug        => { isa => Bool, default => 0 },
     );
     %params = %{ $v->validate(%params) };
 
     my $PDF = $self->_PDF;
 
-    my $x           = $params{x};
-    my $y           = $params{y};
-    my $text        = $params{text};
-    my $w           = $params{w};
-    my $h           = $params{h};
-    my $tate        = $params{tate};
-    my $ttfont      = $params{ttfont};
-    my $fontsize    = $self->to_px( $params{fontsize} || $params{size} );
-    my $line_height = $params{line_height};  # ここではまだ to_px しない
-    my $rotate      = $params{rotate};
-    my $color       = $params{color};
-    my $debug       = $params{debug};
-    my $font        = defined $ttfont ? $PDF->ttfont($ttfont) : $self->_FONT;
+    my $x            = $params{x};
+    my $y            = $params{y};
+    my $text         = $params{text};
+    my $w            = $params{w};
+    my $h            = $params{h};
+    my $tate         = $params{tate};
+    my $ttfont       = $params{ttfont};
+    my $fontsize     = $self->to_px( $params{fontsize} || $params{size} );
+    my $line_height  = $params{line_height};  # ここではまだ to_px しない
+    my $char_spacing = $self->to_px( $params{char_spacing} );
+    my $rotate       = $params{rotate};
+    my $color        = $params{color};
+    my $debug        = $params{debug};
+    my $font         = defined $ttfont ? $PDF->ttfont($ttfont) : $self->_FONT;
 
     die 'Font is not set.'  unless defined $font;
 
@@ -637,7 +639,7 @@ sub text {
                     my $line_ = sprintf '%2d: (%3d,%3d): %s', $l, int $x, int $y_, $line;
                     $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $line_ );
                 }
-                $x_ += $fontsize / ( $char =~ $RE->{CHAR_HANKAKU}  ?  2 : 1 );
+                $x_ += $fontsize / ( $char =~ $RE->{CHAR_HANKAKU}  ?  2 : 1 ) + $char_spacing;
             }
         }
     }
