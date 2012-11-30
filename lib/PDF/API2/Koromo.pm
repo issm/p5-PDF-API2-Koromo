@@ -195,7 +195,7 @@ sub to_px {
     # %h, %H
     elsif (lc $measure =~ /^\%h$/) { $ret = int($self->_HEIGHT * $val / 100); }
     # その他もしくは px
-    else                           { $ret = $val; }
+    else                           { $ret = int($val); }
 
     return $ret;
 }
@@ -210,7 +210,7 @@ sub to_px {
 #
 sub mm {
     my ($self, @args) = @_;
-    my $v = Data::Validator->new( mm => { isa => Int } )->with('StrictSequenced');
+    my $v = Data::Validator->new( mm => { isa => Num } )->with('StrictSequenced');
     my %params = %{ $v->validate(@args) };
     return int( $params{mm} * $self->_MM2PX_RATE );
 };
@@ -220,7 +220,7 @@ sub mm {
 #
 sub pt {
     my ($self, @args) = @_;
-    my $v = Data::Validator->new( pt => { isa => Int } )->with('StrictSequenced');
+    my $v = Data::Validator->new( pt => { isa => Num } )->with('StrictSequenced');
     my %params = %{ $v->validate(@args) };
     return int( $params{pt} * $self->_PT2PX_RATE );
 }

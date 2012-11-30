@@ -11,7 +11,7 @@ my $pdf = new_object();
 ### ng
 for my $args (
     [],
-    [ '123mm' ],
+    [ '123pt' ],
 ) {
     try {
         $pdf->pt( @$args );
@@ -23,6 +23,21 @@ for my $args (
 }
 
 ### ok
-ok is_Int( $pdf->pt(0) );
+### ok
+for my $v (
+    123,
+    '+123',
+    '-123',
+    123.123,
+    '+123.123',
+    '-123.123',
+) {
+    try {
+        ok is_Int( $pdf->pt($v) );
+    } catch {
+        my $msg = shift;
+        fail 'Should success.';
+    };
+}
 
 done_testing;

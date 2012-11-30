@@ -23,6 +23,20 @@ for my $args (
 }
 
 ### ok
-ok is_Int( $pdf->mm(0) );
+for my $v (
+    123,
+    '+123',
+    '-123',
+    123.123,
+    '+123.123',
+    '-123.123',
+) {
+    try {
+        ok is_Int( $pdf->mm($v) );
+    } catch {
+        my $msg = shift;
+        fail 'Should success.';
+    };
+}
 
 done_testing;
