@@ -1,5 +1,9 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_05 2012-11-30 19:30
+        - in ->mm(), ->pt() and ->to_px(), fixed problem that error occurs when
+          they are passed decimal parameter
+
 0.00_04 2012-11-29 11:08
         - ->new() can be passed "file" parameter, like PDF::API2->new(file => $file)
         - ->importpage() can be passed path string to source PDF-file
