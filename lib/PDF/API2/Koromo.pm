@@ -639,7 +639,7 @@ sub text {
                     my $line_ = sprintf '%2d: (%3d,%3d): %s', $l, int $x, int $y_, $line;
                     $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $line_ );
                 }
-                $x_ += $fontsize / ( $char =~ $RE->{CHAR_HANKAKU}  ?  2 : 1 ) + $char_spacing;
+                $x_ += ($font->width($char) * $fontsize) + $char_spacing;
             }
         }
     }
