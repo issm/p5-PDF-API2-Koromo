@@ -585,41 +585,30 @@ sub text {
     #  横書きモード
     #
     else {
-        # テキストボックスからはみ出る部分に \x0a を挿入する
-        if( 1 ) {
-            my @tmp;
+        # 指定幅での折り返しの場合，はみ出る部分に \x0a を挿入する
+        if ( 1 ) {
+            my $w_ = $x + $w > $self->_WIDTH ? $self->_WIDTH - $x : $w;
             $text =~ s{$RE->{NL}}{\x0a}g; # 改行をLFに統一
+            my @lines_wrapped;
             for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
-                my $cursor = 0;
-                my $n_char = length $line;  # 文字数
-                my $n_char_per_row = int( $w / $fontsize );  # 行内文字数
-
-                my $buff_tmp = '';
-                my $n_hankaku = 0;  # 文字列の「半角」数（全角は2でカウントする）
-                # v 空行の場合，$n_char == 0
-                if ($n_char == 0) {
-                    push @tmp, '';
-                    $buff_tmp = '';
-                    $n_hankaku = 0;
-                }
-                # v 空行でない場合（このブロックは，空行の場合自ずと無視されるべき）
-                for( my $i = 0; $i < $n_char; $cursor++, $i++ ) {
-                    my $char = substr( $line, $cursor, 1 );  # 1文字抜き出す
-                    $n_hankaku += $char =~ $RE->{CHAR_HANKAKU}  ?  1  :  2;
-
-                    $buff_tmp .= $char;
-
-                    # 行内文字数を超えた，もしくは次の文字がない
-                    # -1 するのはハミ出し対策
-                    if( $n_hankaku >= $n_char_per_row * 2 - 1  ||  substr( $line, $cursor + 1, 1 ) !~ m{.}  ) {
-                        push @tmp, $buff_tmp;
-                        $buff_tmp = '';
-                        $n_hankaku = 0;
-                        next;
+                my $line_ = '';
+                my $w_line_ = 0;
+                for my $c ( split //, $line ) {
+                    my $w_c = $font->width($c) * $fontsize;
+                    if ( $w_line_ + $char_spacing + $w_c <= $w_ ) {
+                        $line_ .= $c;
+                        $w_line_ += $w_c;
+                        $w_line_ += $char_spacing  if length($line_) > 1;
+                    }
+                    else {
+                        push @lines_wrapped, $line_;
+                        $line_ = $c;
+                        $w_line_ = $w_c;
                     }
                 }
+                push @lines_wrapped, $line_;
             }
-            $text = join "\x0a", @tmp;
+            $text = join "\x0a", @lines_wrapped;
         }
 
         my $l = 0;
