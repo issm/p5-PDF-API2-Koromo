@@ -1,5 +1,10 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_06 2012-12-01 10:57
+        - fixed line-breaking in ->text()
+        - ->text() can be passed "char_spacing" parameter, specifies space
+          between characters
+
 0.00_05 2012-11-30 19:30
         - in ->mm(), ->pt() and ->to_px(), fixed problem that error occurs when
           they are passed decimal parameter
