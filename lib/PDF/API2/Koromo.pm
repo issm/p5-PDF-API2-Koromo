@@ -588,6 +588,9 @@ sub text {
     else {
         $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
 
+        $PDF->textstart();
+        $PDF->textfont($font, $fontsize);
+
         # 指定幅での折り返しの場合，はみ出る部分に \x0a を挿入する
         if ( $params{auto_break} ) {
             my $w_ = $x + $w > $self->_WIDTH ? $self->_WIDTH - $x : $w;
@@ -596,7 +599,7 @@ sub text {
                 my $line_ = '';
                 my $w_line_ = 0;
                 for my $c ( split //, $line ) {
-                    my $w_c = $font->width($c) * $fontsize;
+                    my $w_c = $PDF->{gfx}->advancewidth($c);
                     if ( $w_line_ + $char_spacing + $w_c <= $w_ ) {
                         $line_ .= $c;
                         $w_line_ += $w_c;
@@ -623,15 +626,25 @@ sub text {
             my $x_ = $x;
             for my $char ( split '', $line ) {
                 unless( $debug ) {
-                    $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $char );
+                    $PDF->transform(
+                        -translate => [ $x_, $y_ ],
+                        -rotate    => $rotate,
+                    );
+                    $PDF->text($char);
                 }
                 else {
                     my $line_ = sprintf '%2d: (%3d,%3d): %s', $l, int $x, int $y_, $line;
-                    $PDF->print( $font, $fontsize, int $x_, int $y_, $rotate, 0, $line_ );
+                    $PDF->transform(
+                        -translate => [ $x_, $y_ ],
+                        -rotate    => $rotate,
+                    );
+                    $PDF->text($char);
                 }
-                $x_ += ($font->width($char) * $fontsize) + $char_spacing;
+                $x_ += $PDF->{gfx}->advancewidth($char) + $char_spacing;
             }
         }
+
+        $PDF->textend();
     }
 
     1;
