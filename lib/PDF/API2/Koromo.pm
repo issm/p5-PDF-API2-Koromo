@@ -888,7 +888,7 @@ sub roundrect {
     my $PDF = $self->_PDF;
 
     my ($x, $y, $w, $h, $r) = @params{qw/x y w h r/};
-    my $linewidth   = $params{linewidth};
+    my $linewidth   = $self->to_px( $params{linewidth} );
     my $strokecolor = $params{strokecolor};
     my $fillcolor   = $params{fillcolor};
     my $action      = $params{action};
