@@ -55,7 +55,7 @@ use constant +{
     DEFAULT_LINE_WIDTH   => 1,         # 線の幅
 };
 
-our $VERSION = '0.00_06';
+our $VERSION = '0.00_07';
 
 
 my $RE = {
