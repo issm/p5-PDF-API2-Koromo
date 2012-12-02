@@ -506,6 +506,7 @@ sub text {
         char_spacing => { isa => Unit, default => 0 },
         rotate       => { isa => Num, default => $self->_ROTATE },
         color        => { isa => Color, default => $self->_COLOR_FILL },
+        auto_break   => { isa => Bool, default => 0 },
         debug        => { isa => Bool, default => 0 },
     );
     %params = %{ $v->validate(%params) };
@@ -588,7 +589,7 @@ sub text {
         $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
 
         # 指定幅での折り返しの場合，はみ出る部分に \x0a を挿入する
-        if ( 1 ) {
+        if ( $params{auto_break} ) {
             my $w_ = $x + $w > $self->_WIDTH ? $self->_WIDTH - $x : $w;
             my @lines_wrapped;
             for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
