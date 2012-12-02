@@ -585,10 +585,11 @@ sub text {
     #  横書きモード
     #
     else {
+        $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
+
         # 指定幅での折り返しの場合，はみ出る部分に \x0a を挿入する
         if ( 1 ) {
             my $w_ = $x + $w > $self->_WIDTH ? $self->_WIDTH - $x : $w;
-            $text =~ s{$RE->{NL}}{\x0a}g; # 改行をLFに統一
             my @lines_wrapped;
             for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
                 my $line_ = '';
@@ -614,7 +615,6 @@ sub text {
         my $l = 0;
         $y -= $fontsize;  # 最初の行のy座標
 
-        $text =~ s{$RE->{NL}}{\x0a}g;  # 改行をLFに統一
         for my $line ( split m{\x0a}, $text ) {  # 改行ごとに区切って処理
             #my $y_ = $y - $fontsize * $l++;
             my $y_ = $y - $line_height * $l++;
