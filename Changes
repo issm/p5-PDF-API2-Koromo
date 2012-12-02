@@ -1,5 +1,8 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_08 2012-12-02 18:35
+        - fixed code in ->text()
+
 0.00_07 2012-12-02 18:11
         - ->text() can be passed "auto_break" parameter
         - fixed code in ->text()
