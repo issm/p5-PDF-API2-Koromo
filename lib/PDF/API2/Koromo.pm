@@ -491,6 +491,7 @@ sub save {
 sub text {
     #my $self = shift;
     my ($self, %params) = @_;
+    my %ch_w_cache;
 
     my $v = Data::Validator->new(
         x            => { isa => Unit },
@@ -599,7 +600,7 @@ sub text {
                 my $line_ = '';
                 my $w_line_ = 0;
                 for my $c ( split //, $line ) {
-                    my $w_c = $PDF->{gfx}->advancewidth($c);
+                    my $w_c = $ch_w_cache{$c} ||= $PDF->{gfx}->advancewidth($c);
                     if ( $w_line_ + $char_spacing + $w_c <= $w_ ) {
                         $line_ .= $c;
                         $w_line_ += $w_c;
@@ -640,7 +641,7 @@ sub text {
                     );
                     $PDF->text($char);
                 }
-                $x_ += $PDF->{gfx}->advancewidth($char) + $char_spacing;
+                $x_ += ($ch_w_cache{$char} ||= $PDF->{gfx}->advancewidth($char)) + $char_spacing;
             }
         }
 
