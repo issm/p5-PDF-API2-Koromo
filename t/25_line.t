@@ -17,12 +17,13 @@ for my $param (
     [ mode => 'h', x => 0, y => 0 ],
     [ x => 0 ],
     [ y => 0 ],
-    [ x => 0, y => 0 ],
-    [ x => 0, y => 0, length => 0 ],
     [ mode => 'h', length => 0 ],
     [ mode => 'h', length => 0, x => 0 ],
     [ mode => 'h', length => 0, y => 0 ],
     [ mode => 'foobar', x => 0, y => 0, length => 0 ],
+    [ mode => 'h', x => 0, y => 0, x_to => 10, y_to => 10 ],
+    [ mode => 'v', x => 0, y => 0, x_to => 10, y_to => 10 ],
+    [ mode => 'f', x => 0, y => 0, length => 0 ],
 )  {
     try {
         $pdf->line( @$param );
@@ -38,6 +39,9 @@ is $pdf->line( mode => 'h',          x => 0, y => 0, length => 0 ), 1;
 is $pdf->line( mode => 'horizontal', x => 0, y => 0, length => 0 ), 1;
 is $pdf->line( mode => 'v',          x => 0, y => 0, length => 0 ), 1;
 is $pdf->line( mode => 'vertical',   x => 0, y => 0, length => 0 ), 1;
+is $pdf->line( mode => 'f',          x => 0, y => 0, x_to => 10, y_to => 10 ), 1;
+is $pdf->line( mode => 'free',       x => 0, y => 0, x_to => 10, y_to => 10 ), 1;
+is $pdf->line( x => 0, y => 0, x_to => 10, y_to => 10 ), 1;
 
 
 done_testing;

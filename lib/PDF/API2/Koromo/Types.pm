@@ -25,7 +25,7 @@ subtype Color,
 
 subtype LineMode,
     as Str,
-    where { /^(h(orizontal)?|v(ertical)?)$/ } ;
+    where { /^(h(orizontal)?|v(ertical)?|f(ree)?)$/ } ;
 
 enum DrawAction,
     qw/stroke fill fillstroke/ ;

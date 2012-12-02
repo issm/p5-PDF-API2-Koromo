@@ -797,10 +797,12 @@ sub vline { shift->line( mode => 'v', @_ ); }
 sub line {
     my ($self, %params) = @_;
     my $v = Data::Validator->new(
-        mode   => { isa => LineMode },
+        mode   => { isa => LineMode, default => 'free' },
         x      => { isa => Unit },
         y      => { isa => Unit },
-        length => { isa => Unit },
+        x_to   => { isa => Unit, xor => 'length' },
+        y_to   => { isa => Unit, xor => 'length' },
+        length => { isa => Unit, xor => [qw/x_to y_to/] },
         size   => { isa => Unit, default => $self->_LINE_WIDTH },
         color  => { isa => Color, default => $self->_COLOR_STROKE },
     );
@@ -809,11 +811,20 @@ sub line {
     my $PDF = $self->_PDF;
 
     my $mode   = $params{mode};
-    my $x      = $params{x};
-    my $y      = $params{y};
-    my $length = $params{length};
+    my $x      = $self->to_px( $params{x} );
+    my $y      = $self->to_px( $params{y} );
+    my $x_to   = exists $params{x_to} ? $params{x_to} : undef;
+    my $y_to   = exists $params{y_to} ? $params{y_to} : undef;
+    my $length = exists $params{length} ? $params{length} : undef;
     my $size   = $params{size};
     my $color  = $params{color};
+
+    if ( $mode =~ /^[hv]/  &&  ( defined $x_to || defined $y_to ) ) {
+        die qq{parameter "x_to" and "y_to" is unavailable "$mode" mode.};
+    }
+    elsif ( $mode =~ /^f/  &&  defined $length ) {
+        die qq{parameter "length" is unavailable "$mode" mode.};
+    }
 
     #
     #  horizontal
@@ -821,16 +832,9 @@ sub line {
     if ( $mode =~ /^h(orizontal)?$/  ) {
         $length .= 'w'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ幅を対象とする
         $size   .= 'h'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ高さを対象とする
-
-        ( $x, $y ) = $self->convert_coordinate( $x, $y );
         $length = $self->to_px( $length );
         $size   = $self->to_px( $size );
-
-        $PDF->strokecolor( $color );
-        $PDF->linewidth( $size );
-        $PDF->move( $x, $y );
-        $PDF->line( $x + $length, $y );
-        $PDF->stroke;
+        ( $x_to, $y_to ) = ( $x + $length, $y );
     }
     #
     #  vertical
@@ -838,17 +842,25 @@ sub line {
     elsif ( $mode =~ /^v(ertical)?$/ ) {
         $length .= 'h'  if $length =~ m{\%\s*$};  # 長さを割合で指定した場合，ページ高さを対象とする
         $size   .= 'w'  if $size   =~ m{\%\s*$};  # 線幅を割合で指定した場合，ページ幅を対象とする
-
-        ( $x, $y ) = $self->convert_coordinate( $x, $y );
         $length = $self->to_px( $length );
         $size   = $self->to_px( $size );
-
-        $PDF->strokecolor( $color );
-        $PDF->linewidth( $size );
-        $PDF->move( $x, $y );
-        $PDF->line( $x, $y - $length );
-        $PDF->stroke;
+        ( $x_to, $y_to ) = ( $x, $y + $length );
     }
+    #
+    # free
+    #
+    else {
+        $size = $self->to_px( $size );
+        ( $x_to, $y_to ) = map $self->to_px($_), ( $x_to, $y_to );
+    }
+
+    ( $x, $y )       = $self->convert_coordinate( "${x}px", "${y}px" );
+    ( $x_to, $y_to ) = $self->convert_coordinate( "${x_to}px", "${y_to}px" );
+    $PDF->strokecolor( $color );
+    $PDF->linewidth( $size );
+    $PDF->move( $x, $y );
+    $PDF->line( $x_to, $y_to );
+    $PDF->stroke;
 
     1;
 }
