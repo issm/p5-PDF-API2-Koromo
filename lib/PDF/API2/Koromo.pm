@@ -384,7 +384,7 @@ sub save {
     );
     %params = %{ $v->validate(%params) };
 
-    my $file     = exists $params{as} ? $params{as} : $params{file};
+    my $file     = (exists $params{as} && defined $params{as}) ? $params{as} : $params{file};
     my $as_image = $params{as_image};
     my $scale    = $params{scale};
 
