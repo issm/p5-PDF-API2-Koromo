@@ -1,5 +1,8 @@
 Revision history for Perl extension PDF::API2::Koromo
 
+0.00_11 2013-01-26 04:30
+        - in ->save(), fixed behaviour when parameter "file" is passed
+
 0.00_10 2012-12-03 01:38
         - "free" mode is available in ->line()
 
